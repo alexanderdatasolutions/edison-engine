@@ -1,0 +1,37 @@
+--ヒーローバリア
+--Hero Barrier
+--Edison: it can be activated without an "Elemental Hero" monster; it negates an attack only if you control a face-up "Elemental Hero" monster when it resolves (https://www.edisonformat.com/rulings/individual-rulings-f-h)
+local s,id=GetID()
+function s.initial_effect(c)
+	--negate attack
+	local e1=Effect.CreateEffect(c)
+	e1:SetType(EFFECT_TYPE_ACTIVATE)
+	e1:SetCode(EVENT_FREE_CHAIN)
+	e1:SetCondition(s.condition)
+	e1:SetOperation(s.operation)
+	c:RegisterEffect(e1)
+end
+s.listed_series={SET_ELEMENTAL_HERO}
+function s.filter(c)
+	return c:IsFaceup() and c:IsSetCard(SET_ELEMENTAL_HERO)
+end
+function s.condition(e,tp,eg,ep,ev,re,r,rp)
+	return Duel.IsTurnPlayer(1-tp) and Duel.GetCurrentPhase()<PHASE_MAIN2
+end
+function s.operation(e,tp,eg,ep,ev,re,r,rp)
+	--Edison: the "Elemental Hero" is checked when this card resolves
+	if not Duel.IsExistingMatchingCard(s.filter,tp,LOCATION_MZONE,0,1,nil) then return end
+	if Duel.GetAttacker() then Duel.NegateAttack()
+	else
+		local e1=Effect.CreateEffect(e:GetHandler())
+		e1:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
+		e1:SetCode(EVENT_ATTACK_ANNOUNCE)
+		e1:SetReset(RESET_PHASE|PHASE_END)
+		e1:SetOperation(s.disop)
+		Duel.RegisterEffect(e1,tp)
+	end
+end
+function s.disop(e,tp,eg,ep,ev,re,r,rp)
+	Duel.NegateAttack()
+	e:Reset()
+end

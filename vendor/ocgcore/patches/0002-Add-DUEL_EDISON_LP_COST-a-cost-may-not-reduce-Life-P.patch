@@ -1,0 +1,47 @@
+From f0e42765e836387509364ba5ad96d75c246b3ed2 Mon Sep 17 00:00:00 2001
+From: edison-sim <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 13:45:58 -0700
+Subject: [PATCH 2/3] Add DUEL_EDISON_LP_COST: a cost may not reduce Life
+ Points to 0
+
+Edison format rule 10, https://www.edisonformat.com/edison-rule-differences.html :
+"you cannot pay costs if doing so would reduce your Life Points to 0"
+(Mirror Wall at 2000 or fewer Life Points destroys itself).
+No change when the flag is off.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ field.cpp          | 4 +++-
+ ocgapi_constants.h | 1 +
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/field.cpp b/field.cpp
+index 6fab98c..51a26ee 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -2385,7 +2385,9 @@ int32_t field::check_lp_cost(uint8_t playerid, uint32_t lp) {
+ 	if(effect_replace_check(EFFECT_LPCOST_REPLACE, e))
+ 		return TRUE;
+ 	//cost[playerid].amount += val;
+-	if(val <= player[playerid].lp)
++	// Edison (TCG 2010) rule 10, https://www.edisonformat.com/edison-rule-differences.html :
++	// "you cannot pay costs if doing so would reduce your Life Points to 0".
++	if(is_flag(DUEL_EDISON_LP_COST) ? val < player[playerid].lp : val <= player[playerid].lp)
+ 		return TRUE;
+ 	return FALSE;
+ }
+diff --git a/ocgapi_constants.h b/ocgapi_constants.h
+index 8786c5e..5d193d3 100644
+--- a/ocgapi_constants.h
++++ b/ocgapi_constants.h
+@@ -415,6 +415,7 @@
+ #define DUEL_NORMAL_SUMMON_FACEUP_DEF 0x1000000000
+ // Edison format (TCG, April 2010) rules. Bits from 1 << 48 up, well clear of upstream's.
+ #define DUEL_EDISON_IGNITION_PRIORITY 0x1000000000000
++#define DUEL_EDISON_LP_COST 0x2000000000000
+ #define DUEL_MODE_SPEED        (DUEL_3_COLUMNS_FIELD | DUEL_NO_MAIN_PHASE_2 | DUEL_TRAP_MONSTERS_NOT_USE_ZONE | DUEL_TRIGGER_ONLY_IN_LOCATION)
+ #define DUEL_MODE_RUSH         (DUEL_3_COLUMNS_FIELD | DUEL_NO_MAIN_PHASE_2 | DUEL_NO_STANDBY_PHASE | DUEL_1ST_TURN_DRAW | DUEL_INVERTED_QUICK_PRIORITY | DUEL_DRAW_UNTIL_5 | DUEL_NO_HAND_LIMIT | DUEL_UNLIMITED_SUMMONS | DUEL_TRAP_MONSTERS_NOT_USE_ZONE | DUEL_TRIGGER_ONLY_IN_LOCATION | DUEL_EXTRA_DECK_RITUAL)
+ #define DUEL_MODE_MR1          (DUEL_OCG_OBSOLETE_IGNITION | DUEL_1ST_TURN_DRAW | DUEL_1_FACEUP_FIELD | DUEL_SPSUMMON_ONCE_OLD_NEGATE | DUEL_RETURN_TO_DECK_TRIGGERS | DUEL_CANNOT_SUMMON_OATH_OLD)
+-- 
+2.40.0
+

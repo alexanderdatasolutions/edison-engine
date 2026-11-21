@@ -1,0 +1,127 @@
+From 23b867c0f26778b42f1b7b2c86ce0790e3f1eab1 Mon Sep 17 00:00:00 2001
+From: edison-sim <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 13:44:13 -0700
+Subject: [PATCH 1/3] Add DUEL_EDISON_IGNITION_PRIORITY: 2010 TCG ignition
+ effect priority
+
+Edison format, https://www.edisonformat.com/priority.html :
+- The turn player may activate any Ignition Effect (field, Graveyard, hand,
+  Spell/Trap) as Chain Link 1 in the response timing of their own successful
+  Summon, if that Summon triggered nothing.
+- No ignition priority after a chain resolves, unless the last thing to
+  happen was such a Summon (their Ritual Summon example).
+- If the turn player declines an optional Trigger Effect in that timing they
+  have no priority at all: the opponent gets the first fast effect, and the
+  window closes if the opponent passes.
+
+Takes precedence over DUEL_OCG_OBSOLETE_IGNITION and
+DUEL_TCG_FAST_EFFECT_IGNITION. No change when the flag is off.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ ocgapi_constants.h |  2 ++
+ processor.cpp      | 28 +++++++++++++++++++++++-----
+ processor_unit.h   |  3 ++-
+ 3 files changed, 27 insertions(+), 6 deletions(-)
+
+diff --git a/ocgapi_constants.h b/ocgapi_constants.h
+index cdc0f4c..8786c5e 100644
+--- a/ocgapi_constants.h
++++ b/ocgapi_constants.h
+@@ -413,6 +413,8 @@
+ #define DUEL_TCG_FAST_EFFECT_IGNITION 0x400000000
+ #define DUEL_EXTRA_DECK_RITUAL 0x800000000
+ #define DUEL_NORMAL_SUMMON_FACEUP_DEF 0x1000000000
++// Edison format (TCG, April 2010) rules. Bits from 1 << 48 up, well clear of upstream's.
++#define DUEL_EDISON_IGNITION_PRIORITY 0x1000000000000
+ #define DUEL_MODE_SPEED        (DUEL_3_COLUMNS_FIELD | DUEL_NO_MAIN_PHASE_2 | DUEL_TRAP_MONSTERS_NOT_USE_ZONE | DUEL_TRIGGER_ONLY_IN_LOCATION)
+ #define DUEL_MODE_RUSH         (DUEL_3_COLUMNS_FIELD | DUEL_NO_MAIN_PHASE_2 | DUEL_NO_STANDBY_PHASE | DUEL_1ST_TURN_DRAW | DUEL_INVERTED_QUICK_PRIORITY | DUEL_DRAW_UNTIL_5 | DUEL_NO_HAND_LIMIT | DUEL_UNLIMITED_SUMMONS | DUEL_TRAP_MONSTERS_NOT_USE_ZONE | DUEL_TRIGGER_ONLY_IN_LOCATION | DUEL_EXTRA_DECK_RITUAL)
+ #define DUEL_MODE_MR1          (DUEL_OCG_OBSOLETE_IGNITION | DUEL_1ST_TURN_DRAW | DUEL_1_FACEUP_FIELD | DUEL_SPSUMMON_ONCE_OLD_NEGATE | DUEL_RETURN_TO_DECK_TRIGGERS | DUEL_CANNOT_SUMMON_OATH_OLD)
+diff --git a/processor.cpp b/processor.cpp
+index ab8a51d..8bee435 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -728,6 +728,7 @@ bool field::process(Processors::PointEvent& arg) {
+ 			arg.step = 5;
+ 			return FALSE;
+ 		} else {
++			arg.optional_trigger_offered |= 1 << core.current_player;
+ 			if(is_flag(DUEL_TCG_SEGOC_NONPUBLIC))
+ 				core.new_ochain_h.clear();
+ 			//tcg segoc
+@@ -794,11 +795,19 @@ bool field::process(Processors::PointEvent& arg) {
+ 		return FALSE;
+ 	}
+ 	case 8: {
+-		if(skip_freechain || !(is_flag(DUEL_OCG_OBSOLETE_IGNITION) || is_flag(DUEL_TCG_FAST_EFFECT_IGNITION)) || (infos.phase != PHASE_MAIN1 && infos.phase != PHASE_MAIN2))
++		// Edison (TCG 2010) "Ignition Effect Priority", https://www.edisonformat.com/priority.html :
++		// the turn player may activate an Ignition Effect as Chain Link 1 only in the response timing of their
++		// own successful Summon, and only if that Summon triggered nothing (a declined optional Trigger Effect
++		// counts as triggered). Any Ignition Effect qualifies, wherever its card is ("Destiny HERO - Malicious"
++		// in the Graveyard). There is none after a chain resolves unless the last thing to happen was such a Summon.
++		const bool edison = is_flag(DUEL_EDISON_IGNITION_PRIORITY);
++		if(skip_freechain || !(edison || is_flag(DUEL_OCG_OBSOLETE_IGNITION) || is_flag(DUEL_TCG_FAST_EFFECT_IGNITION)) || (infos.phase != PHASE_MAIN1 && infos.phase != PHASE_MAIN2))
+ 			return FALSE;
+ 		// Obsolete ignition effect ruling
+ 		auto check_events_ocg = [&] {
+-			if(check_event(EVENT_CHAIN_END))
++			if(edison && arg.optional_trigger_offered)
++				return false;
++			if(!edison && check_event(EVENT_CHAIN_END))
+ 				return true;
+ 			tevent _e;
+ 			if(!check_event(EVENT_SUMMON_SUCCESS, &_e) && !check_event(EVENT_SPSUMMON_SUCCESS, &_e) &&
+@@ -806,7 +815,7 @@ bool field::process(Processors::PointEvent& arg) {
+ 				return false;
+ 			return _e.reason_player == infos.turn_player;
+ 		};
+-		if(core.current_chain.size() == 0 && (is_flag(DUEL_TCG_FAST_EFFECT_IGNITION) || check_events_ocg())) {
++		if(core.current_chain.size() == 0 && (edison ? check_events_ocg() : (is_flag(DUEL_TCG_FAST_EFFECT_IGNITION) || check_events_ocg()))) {
+ 			chain newchain;
+ 			{
+ 				newchain.evt.event_cards = nullptr;
+@@ -823,7 +832,7 @@ bool field::process(Processors::PointEvent& arg) {
+ 				++eit;
+ 				card* phandler = peffect->get_handler();
+ 				newchain.evt.event_code = peffect->code;
+-				if((is_flag(DUEL_TCG_FAST_EFFECT_IGNITION) || phandler->current.location == LOCATION_MZONE)
++				if((edison || is_flag(DUEL_TCG_FAST_EFFECT_IGNITION) || phandler->current.location == LOCATION_MZONE)
+ 				   && peffect->is_chainable(infos.turn_player)
+ 				   && peffect->is_activateable(infos.turn_player, newchain.evt)) {
+ 					newchain.chain_id = infos.field_id++;
+@@ -839,7 +848,16 @@ bool field::process(Processors::PointEvent& arg) {
+ 		infos.priorities[0] = 0;
+ 		infos.priorities[1] = 0;
+ 		if(core.current_chain.size() == 0) {
+-			if(!core.hand_adjusted) {
++			tevent _e;
++			if(!core.hand_adjusted && is_flag(DUEL_EDISON_IGNITION_PRIORITY) && (arg.optional_trigger_offered & (1 << infos.turn_player))
++			   && (check_event(EVENT_SUMMON_SUCCESS, &_e) || check_event(EVENT_SPSUMMON_SUCCESS, &_e) || check_event(EVENT_FLIP_SUMMON_SUCCESS, &_e))
++			   && _e.reason_player == infos.turn_player) {
++				// Edison, same page ("Armageddon Knight" example): a turn player who declines the optional Trigger
++				// Effect of their own Summon "does NOT have priority to activate any other card/effect as Chain Link 1";
++				// priority passes to the opponent, and the response window closes if they pass too.
++				infos.priorities[infos.turn_player] = 1;
++				emplace_process<Processors::QuickEffect>(skip_freechain, 1 - infos.turn_player);
++			} else if(!core.hand_adjusted) {
+ 				if(is_flag(DUEL_INVERTED_QUICK_PRIORITY))
+ 					emplace_process<Processors::QuickEffect>(skip_freechain, 1 - infos.turn_player);
+ 				else
+diff --git a/processor_unit.h b/processor_unit.h
+index 66efb0d..26275a5 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -205,8 +205,9 @@ struct PointEvent : public Process<false> {
+ 	bool skip_trigger;
+ 	bool skip_freechain;
+ 	bool skip_new;
++	uint8_t optional_trigger_offered; // DUEL_EDISON_IGNITION_PRIORITY: bit per player who could have activated an optional trigger here
+ 	PointEvent(uint16_t step_, bool skip_trigger_, bool skip_freechain_, bool skip_new_) :
+-		Process(step_), skip_trigger(skip_trigger_), skip_freechain(skip_freechain_), skip_new(skip_new_) {}
++		Process(step_), skip_trigger(skip_trigger_), skip_freechain(skip_freechain_), skip_new(skip_new_), optional_trigger_offered(0) {}
+ };
+ struct QuickEffect : public Process<false> {
+ 	bool skip_freechain;
+-- 
+2.40.0
+

@@ -1,0 +1,20 @@
+{
+  "name": "edison-engine",
+  "version": "1.0.0",
+  "description": "The Edison-format Yu-Gi-Oh rules engine: EDOPro's core with Edison patches, Edison card scripts, and a JSON-over-stdio server",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "repository": { "type": "git", "url": "https://github.com/alexanderdatasolutions/edison-engine.git" },
+  "engines": { "node": ">=20" },
+  "bin": { "edison-engine": "server.js" },
+  "main": "server.js",
+  "files": ["server.js", "lib/", "formats/", "vendor/", "scripts/fetch-data.sh", "LICENSE", "README.md", "AGENTS.md"],
+  "scripts": {
+    "fetch-data": "sh scripts/fetch-data.sh",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "ocgcore-wasm": "0.1.7"
+  }
+}
