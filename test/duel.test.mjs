@@ -121,6 +121,18 @@ function codesIn(m, at = "", out = new Map()) {
   return out;
 }
 
+test("a card shown out of a player's own hand or field is told to everyone; a Deck's card shown to one player is not", () => {
+  const card = (controller, location) => ({ code: 79814787, controller, location, sequence: 0 });
+  const searched = { type: M.CONFIRM_CARDS, player: 1, cards: [card(0, 2)] }; // player 0 added it to their hand and showed player 1
+  for (const v of [0, 1, SPECTATOR]) assert.deepEqual(redact(searched, v), searched);
+  const looked = { type: M.CONFIRM_CARDS, player: 0, cards: [card(0, 1)] }; // player 0 looked at a card in their own Deck
+  assert.deepEqual([0, 1, SPECTATOR].map((v) => redact(looked, v)), [looked, null, null]);
+  const theirDeck = { type: M.CONFIRM_CARDS, player: 1, cards: [card(0, 1)] }; // player 1 was shown a card of player 0's Deck: player 0 may not know it
+  assert.deepEqual([0, 1, SPECTATOR].map((v) => redact(theirDeck, v)), [null, theirDeck, null]);
+  const top = { type: M.CONFIRM_DECKTOP, player: 1, cards: [card(0, 1)] };
+  assert.deepEqual([0, 1, SPECTATOR].map((v) => redact(top, v)), [null, top, null]);
+});
+
 test("a spectator never receives the code of a card that is not public: the table and every event, over whole duels", () => {
   const PILES = ["hand", "mzone", "szone", "grave", "removed", "extra"];
   let events = 0, named = 0, blanked = 0;
@@ -141,7 +153,8 @@ test("a spectator never receives the code of a card that is not public: the tabl
         const s = redact(m, SPECTATOR), forPlayers = [redact(m, 0), redact(m, 1)];
         if (!s) continue;
         events++;
-        assert.ok(![M.CONFIRM_CARDS, M.CONFIRM_DECKTOP, M.CONFIRM_EXTRATOP, M.MISSED_EFFECT].includes(s.type), "shown to one player only");
+        assert.ok(![M.CONFIRM_DECKTOP, M.CONFIRM_EXTRATOP, M.MISSED_EFFECT].includes(s.type), "shown to one player only");
+        if (s.type === M.CONFIRM_CARDS) assert.ok(s.cards.every((c) => c.code && c.controller !== s.player && (c.location & 14)), "a card shown that its own controller may not know"); // hand 2, monster zone 4, Spell & Trap zone 8
         if (s.type === M.HINT) { assert.ok(![1, 2, 3, 5].includes(s.hint_type), "a hint for one player"); continue; } // what is left is a player's public declaration
         assert.ok(forPlayers[0] && forPlayers[1], `message ${s.type} goes to a spectator but not to both players`);
         if (s.type === M.DRAW) for (const c of s.drawn) if (!(c.position & 5)) assert.equal(c.code, 0, "a drawn card");
